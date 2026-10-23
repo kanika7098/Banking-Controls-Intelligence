@@ -21,7 +21,7 @@ MAX_CONTEXT_CHARS = 12000
 MIN_RELEVANCE_SCORE = 0.20
 
 INSUFFICIENT_EVIDENCE = (
-    "I could not find sufficiently relevant evidence in the indexed "
+    "I could not find relevant evidence in the indexed "
     "documents to answer this question."
 )
 
@@ -82,6 +82,7 @@ def _answer_reports_insufficient_evidence(answer: str) -> bool:
         r"\bunable to answer\b",
         r"\bno relevant evidence\b",
         r"\bcould not find relevant evidence\b",
+        r"\bcould not find sufficiently relevant evidence\b",
         r"\bavailable evidence is insufficient\b",
         r"\bexcerpts do not support\b",
     )
@@ -113,10 +114,7 @@ def answer_question(
 
     if not retrieved:
         return {
-            "answer": (
-                "I could not find relevant evidence in the indexed documents "
-                "to answer this question."
-            ),
+            "answer": INSUFFICIENT_EVIDENCE,
             "citations": [],
             "retrieved_chunks": 0,
             "grounded": False,
@@ -125,7 +123,7 @@ def answer_question(
     relevant = [
         item
         for item in retrieved
-        if item["score"] >= MIN_RELEVANCE_SCORE
+        if float(item["score"]) >= MIN_RELEVANCE_SCORE
     ]
 
     if not relevant:
@@ -173,6 +171,14 @@ def answer_question(
 
         used_chars += len(passage)
 
+    if not evidence_parts or not citations:
+        return {
+            "answer": INSUFFICIENT_EVIDENCE,
+            "citations": [],
+            "retrieved_chunks": len(retrieved),
+            "grounded": False,
+        }
+
     context = "\n\n".join(evidence_parts)
 
     prompt = f"""You are a banking controls research assistant.
@@ -190,10 +196,13 @@ Rules:
 7. Distinguish explicit requirements from recommendations or interpretations.
 8. Never invent policies, regulatory requirements, quotations, or citations.
 9. Be concise and clear.
-10. Every factual paragraph must end with one or more valid source labels, for example [Source 1] or [Source 1][Source 2].
+10. Every factual paragraph must end with one or more valid source labels,
+    for example [Source 1] or [Source 1][Source 2].
 11. Put the source label immediately after the claim it supports.
-12. Never omit source labels from factual claims when the excerpts support the answer.
-13. If no excerpt supports the answer, use the required insufficient-evidence response instead of guessing.
+12. Never omit source labels from factual claims when the excerpts support
+    the answer.
+13. If no excerpt supports the answer, use the required
+    insufficient-evidence response instead of guessing.
 
 DOCUMENT EXCERPTS:
 {context}
@@ -206,7 +215,7 @@ GROUNDED ANSWER:
 
     answer = _generate_with_ollama(prompt)
 
-    # Do not return citations when the model explicitly abstains.
+    # Preserve the abstention safeguard.
     if _answer_reports_insufficient_evidence(answer):
         return {
             "answer": answer,
@@ -215,17 +224,17 @@ GROUNDED ANSWER:
             "grounded": False,
         }
 
-    # Recognize both [Source 1] and [Source 1: filename, page 1].
+    # Recognize [Source 1] and [Source 1: filename, page 1].
     cited_numbers = {
         int(number)
         for number in re.findall(
-            r"\[Source\s+(\d+)(?:\s*:|\])",
+            r"\[Source\s+(\d+)(?=[:\]])",
             answer,
             re.IGNORECASE,
         )
     }
 
-    # Ignore source numbers that were not provided to the model.
+    # Only accept source numbers that were actually supplied to the model.
     cited_numbers = {
         number
         for number in cited_numbers
@@ -238,6 +247,7 @@ GROUNDED ANSWER:
         if number in cited_numbers
     ]
 
+    # Do not claim that an answer is grounded if it cites no valid source.
     if not used_citations:
         return {
             "answer": answer,
