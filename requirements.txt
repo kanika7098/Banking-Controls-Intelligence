@@ -1,0 +1,11 @@
+﻿fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+pymupdf
+pytesseract
+Pillow
+sentence-transformers
+faiss-cpu
+numpy
+pytest

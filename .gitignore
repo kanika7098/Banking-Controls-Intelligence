@@ -1,0 +1,17 @@
+﻿.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+.env.*
+!.env.example
+data/uploads/
+data/processed/
+data/vector_index/
+*.backup
+node_modules/
+frontend/dist/
+frontend/.next/
+
+# Local backup of the initial frontend
+frontend-initial-backup/
